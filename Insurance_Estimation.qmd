@@ -3,18 +3,47 @@ title: "Projekt"
 format: html
 ---
 
-
 ```{r}
+library(tidymodels)
+library(parsnip)
 
+# Helper packages
+
+library(readr)       # import danych
+library(broom.mixed) # konwersja 
+library(dotwhisker) 
+library(ggplot2)
 ```
 
 ```{r}
+df = read.csv("insurance.csv")
+```
 
+```{r}
+print(head(df))
 ```
 
 
 ```{r}
 #| echo: false
+
+df |> is.na() |> as.tibble()|>  summarise_all(sum)
 ```
 
+```{r}
+df |> summary()
+```
+```{r}
+ggplot(data = df, aes(x = smoker)) + geom_bar()
+```
+
+
+```{r}
+ggplot(data = df, aes(x = sex)) + geom_bar()
+```
+
+
+```{r}
+ggplot(data = df, aes(x = region)) + geom_bar()
+```
 
