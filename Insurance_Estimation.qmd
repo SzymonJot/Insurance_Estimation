@@ -13,6 +13,8 @@ library(readr)       # import danych
 library(broom.mixed) # konwersja 
 library(dotwhisker) 
 library(ggplot2)
+library(ggcorrplot)
+library(GGally)
 ```
 
 ```{r}
@@ -26,24 +28,138 @@ print(head(df))
 
 ```{r}
 #| echo: false
-
 df |> is.na() |> as.tibble()|>  summarise_all(sum)
+```
+```{r}
+df[duplicated(df),]
+```
+```{r}
+df <- df |> unique() 
 ```
 
 ```{r}
 df |> summary()
 ```
+
 ```{r}
-ggplot(data = df, aes(x = smoker)) + geom_bar()
+#| echo: false
+ggpairs(df |> select(where(is.numeric)))
+```
+
+
+```{r}
+df |> 
+  select(age, bmi, charges) |> 
+  pivot_longer(everything()) |> 
+  ggplot(aes(x = "", y = value)) + 
+  geom_boxplot() +
+  facet_wrap(~name, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Boxplots per variable", x = "", y = "")
+  
 ```
 
 
 ```{r}
 ggplot(data = df, aes(x = sex)) + geom_bar()
+ggplot(data = df, aes(x = region)) + geom_bar()
+ggplot(data = df, aes(x=children)) + geom_bar()
 ```
 
 
 ```{r}
-ggplot(data = df, aes(x = region)) + geom_bar()
+p <-df |> select(sex,smoker,region) |> ggpairs() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, size = 8))
+
+print(p, progress=FALSE)
 ```
+
+
+
+```{r}
+df |> select(region, sex, smoker, charges) |> 
+  pivot_longer(cols = c(region, sex, smoker)) |> 
+  ggplot(aes(x=value, y=charges, fill = value)) + 
+  geom_boxplot() +
+  facet_wrap(~ name, scales = "free_x") +
+  labs(title = "Charges by categorical variables", x = "", y = "Charges")
+```
+
+```{r}
+ggplot(df, aes(x = smoker, y = charges, fill = sex)) +
+  geom_boxplot(position = position_dodge()) +
+  labs(title = "Interaction: Smoker × Sex", x = "Smoker", y = "Charges")
+
+```
+```{r}
+ggplot(df, aes(x = smoker, y = charges, fill = smoker)) +
+  geom_boxplot() +
+  facet_wrap(~ sex)
+
+```
+```{r}
+ggplot(df, aes(x = age, y = charges, color = smoker)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Interaction: Age × Smoker", x = "Age", y = "Charges")
+
+ggplot(df, aes(x = bmi, y = charges, color = smoker)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Interaction: BMI × Smoker", x = "bmi", y = "Charges")
+
+ggplot(df, aes(x = children, y = charges, color = smoker)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Interaction: BMI × Smoker", x = "children", y = "Charges")
+
+
+```
+```{r}
+ggplot(df, aes(x = age, y = charges, color = sex)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Interaction: Age × Sex", x = "Age", y = "Charges")
+
+ggplot(df, aes(x = bmi, y = charges, color = sex)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Interaction: BMI × Sex", x = "bmi", y = "Charges")
+
+ggplot(df, aes(x = children, y = charges, color = sex)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Interaction: BMI × Smoker", x = "children", y = "Charges")
+```
+
+
+```{r}
+ggplot(df, aes(x = smoker, y = charges, fill = smoker)) +
+  geom_boxplot() +
+  facet_grid(sex ~ region) +
+  labs(title = "Charges by Smoker × Sex × Region")
+
+```
+
+
+```{r}
+df <- mutate(df, is_male = ifelse(sex == "male", 1, 0))
+df <- mutate(df, is_smoking = ifelse(smoker == "yes", 1, 0))
+df <- mutate(df, region = as.factor(region))
+str(df)
+```
+
+```{r}
+df |> select(where(is.numeric))
+```
+
+```{r}
+corr_mat <- cor(df |> select(where(is.numeric)))
+```
+
+```{r}
+ggcorrplot(corr_mat, method="circle", type='lower', title = 'Correlation Matrix')
+```
+
 
