@@ -1,50 +1,95 @@
 ---
-title: "Projekt"
-format: html
+title: "projekt_ML_Insurance"
+author: "Szymon Jarmołowski"
+format:
+  html:
+    embed-resources: true      # or: self-contained: true
+    toc: true
+    toc-depth: 4
+    toc-location: right
+    toc-title: "Spis treści"
+    number-sections: true
+    number-depth: 4
+    code-fold: show
+    code-summary: "Show the code"
+    code-tools: true
+    code-block-bg: true
+    code-block-border-left: black
+    code-line-numbers: false
+    code-copy: true
+    html-math-method: katex
+    smooth-scroll: true
+    anchor-sections: true
+    link-external-icon: true
+    link-external-newwindow: true
+editor_options:
+  chunk_output_type: console
+execute: 
+  echo: true
+  warning: false
+  message: false
 ---
+# Wstęp
 
-```{r}
+Analizowany jest znany zbiór danych o kosztach ubezpieczenia medycznego (pierwotnie opracowany przez Machine Learning with R). Zawiera on 1338 obserwacji osób wraz z informacjami demograficznymi, zdrowotnymi, stylu życia, a także ich rocznymi składkami na ubezpieczenie medyczne. Zbiór danych obejmuje zmienne takie jak wiek, płeć, wskaźnik masy ciała (BMI), palenie papierosów, liczba dzieci oraz region zamieszkania w Stanach Zjednoczonych (północny wschód, północny zachód, południowy wschód, południowy zachód). Celem jest zbadanie czynników wpływających na koszty leczenia i zbudowanie modeli predykcyjnych do szacowania składek ubezpieczeniowych.
+
+# Czyszczenie danych
+
+```{r setup}
+#| label: load-libraries
+#| code-summary: "Ładowanie potrzebnych bibliotek"
 library(tidymodels)
 library(parsnip)
-
-# Helper packages
-
-library(readr)       # import danych
-library(broom.mixed) # konwersja 
+library(readr)      
+library(broom.mixed) 
 library(dotwhisker) 
 library(ggplot2)
 library(ggcorrplot)
 library(GGally)
+library(moments)
 ```
 
 ```{r}
+#| code-summary: "Załadowanie danych"
 df = read.csv("insurance.csv")
-```
-
-```{r}
 print(head(df))
 ```
 
-
 ```{r}
-#| echo: false
+#| code-summary: "Czyszczenie danych"
+# Sprawdzenie brakujących danych
 df |> is.na() |> as.tibble()|>  summarise_all(sum)
-```
-```{r}
+# Usunięcie duplikatów
 df[duplicated(df),]
-```
-```{r}
 df <- df |> unique() 
 ```
 
 ```{r}
+#| code-summary: "Podsumowanie danych"
 df |> summary()
 ```
 
+
+W zbiorze danych nie znaleziono brakujących danych. Usunięto natomiast jeden duplikat.  
+
+Badane zmienne:
+
+* age – wiek osoby, zawiera obserwacje z przedziału 18–64 ze średnim wiekiem pacjenta ~39.
+* sex – płeć, zmienna jakościowa.
+* bmi – stosunek masy do wzrostu, występują zarówno niskie obserwacje 15.96 jak i bardzo wysokie 53.13. W dalszej części pracy wartości te zostaną sprawdzone.
+* chlidren - ilość dzieci z wartościami od 0 do 5.
+* smoker - zmienna wskazująca czy osoba jest paląca.
+* region - cześć USA: northeast, northwest, southeast oraz southwest.
+* charges - koszt ubezpieczenia. Zmienna objaśniana.
+
+
+
 ```{r}
-#| echo: false
+# Zmienne numeryczne
 ggpairs(df |> select(where(is.numeric)))
 ```
+
+Nie występuje wysoka korelacja między zmiennymi objaśniającymi. W zbiorze danych przeważają młodzi ludzi ludzie, chociaż liczba obserwacji między 20 a 50 rokiem życia jestw zględnie ta sama. Ludzi po 60 roku życia jest wyraźnie mniej. W przypadku BMI rozkład jest prawostronny, co wskazuje na występowania zmiennych odstających w górnych przedziałach. Nie obserwuje się zależności między BMI a wiekiem. Obserwacje z wysokim BMI (>50) występują dla osób poniżej 30 roku życia. W przypadku ilości dzieci dominują obserwacje z 0 ilością dzieci, stopniowo zmniejszając się wraz z zwiększaniem liczby dzieci. Nie obserwuje się zależności między liczbą dzieci, a wiekiem oraz BMI. Rozkład kosztu ubezpieczenia jest silnie prawostronny. Obserwuje się liniowy wzrost kosztu wraz z wzrostem wieku. Natomiast wiek nie jest jedyną determinantą - istnieje wiele obserwacji które formują równoległe liniowe linie wyżej co sugeruje istnienie dodatkowych czynników. Występuje dodatnia korelacja między wzrostem BMI a opłatami. Osoby z od 0 do 3 dzieci mają zarówno niskie jak i wysokie opłaty, natomiast dla 4 i 5 dzieci obserwuje się głównie niskie koszta ubezpieczenia. 
 
 
 ```{r}
@@ -55,10 +100,32 @@ df |>
   geom_boxplot() +
   facet_wrap(~name, scales = "free_y") +
   theme_minimal() +
-  labs(title = "Boxplots per variable", x = "", y = "")
+  labs(title = "Wykresy pudełkowe dla zmiennych ilościowych", x = "", y = "")
   
 ```
 
+Obserwuje się kilka wartości odstających dla BMI (>45) oraz wiele wartości powyżej górnego wąsa dla opłat.
+
+```{r}
+df |> ggplot(aes(sample = charges)) + stat_qq() + stat_qq_line()
+df |> ggplot(aes(sample = bmi)) + stat_qq() + stat_qq_line()
+```
+
+```{r}
+#| echo: False
+cat("Skośność rozkładu opłat", skewness(df$charges))
+
+cat("Skośność rozkładu BMI", skewness(df$bmi))
+```
+
+
+```{r}
+df$charges_log = log(df$charges)
+cat("Skośność rozkładu opłat po transformacji logarytmicznej", skewness(df$charges_log))
+df |> ggplot(aes(sample = charges_log)) + stat_qq() + stat_qq_line()
+```
+
+Po transformacji logarytmicznej rozkład jest o wiele bliższy normalnemu. Występuję więcej wartości odstających po lewej stronie rozkładu oraz mniej po prawej w porównaniu do rozkładu normalnego.
 
 ```{r}
 ggplot(data = df, aes(x = sex)) + geom_bar()
