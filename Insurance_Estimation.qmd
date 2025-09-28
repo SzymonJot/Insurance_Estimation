@@ -47,6 +47,7 @@ library(ggplot2)
 library(ggcorrplot)
 library(GGally)
 library(moments)
+library(dplyr)
 ```
 
 ```{r}
@@ -86,7 +87,7 @@ Badane zmienne:
 
 ```{r}
 # Zmienne numeryczne
-ggpairs(df |> select(where(is.numeric)))
+df |> select(where(is.numeric)) |> ggpairs()
 ```
 
 Nie występuje wysoka korelacja między zmiennymi objaśniającymi. W zbiorze danych przeważają młodzi ludzi ludzie, chociaż liczba obserwacji między 20 a 50 rokiem życia jestw zględnie ta sama. Ludzi po 60 roku życia jest wyraźnie mniej. W przypadku BMI rozkład jest prawostronny, co wskazuje na występowania zmiennych odstających w górnych przedziałach. Nie obserwuje się zależności między BMI a wiekiem. Obserwacje z wysokim BMI (>50) występują dla osób poniżej 30 roku życia. W przypadku ilości dzieci dominują obserwacje z 0 ilością dzieci, stopniowo zmniejszając się wraz z zwiększaniem liczby dzieci. Nie obserwuje się zależności między liczbą dzieci, a wiekiem oraz BMI. Rozkład kosztu ubezpieczenia jest silnie prawostronny. Obserwuje się liniowy wzrost kosztu wraz z wzrostem wieku. Natomiast wiek nie jest jedyną determinantą - istnieje wiele obserwacji które formują równoległe liniowe linie wyżej co sugeruje istnienie dodatkowych czynników. Występuje dodatnia korelacja między wzrostem BMI a opłatami. Osoby z od 0 do 3 dzieci mają zarówno niskie jak i wysokie opłaty, natomiast dla 4 i 5 dzieci obserwuje się głównie niskie koszta ubezpieczenia. 
@@ -355,7 +356,6 @@ plot(fitted(m), res)
 ```
 
 
-
 ```{r}
 m2 <- lm(charges_log ~ smoker * (ns(bmi,4) + ns(age,3)) + sex + region + children, data = df)
 summary(m2)
@@ -374,38 +374,59 @@ plot(fitted(m), res)
 
 
 ```{r}
-library(broom); library(dplyr)
 
-aug_used <- augment(m) %>%                      # tylko wiersze użyte w m
-  mutate(rowid = as.integer(.rownames)) %>%
-  select(rowid, .fitted, .resid)
-
-df <- df %>% mutate(rowid = dplyr::row_number()) %>%
-  left_join(aug_used, by = "rowid")             # brakujące → NA
-
-
+aug <- augment(m, data = df) 
 
 ```
 
 ```{r}
-library(broom); library(dplyr); library(tidyr); library(forcats)
+df <- df |>  mutate(
+    obese30 = factor(bmi >= 30, labels = c("BMI<30", "BMI≥30"))
+  )
+```
 
-aug <- augment(m, data = df)  # adds .fitted, .resid, .hat, .cooksd, .std.resid
+# Dodanie przepisu
+```{r}
+rec_base <- recipe(
+  charges ~ smoker + bmi + age + sex + region + children,
+  data = df
+) |> 
+step_log(charges) |> 
+step_normalize(all_numeric_predictors())  
+```
 
-# Top positives
-top_pos <- aug %>%
-  arrange(desc(.resid)) %>%
-  slice_head(n = 50) %>%
-  mutate(obese30 = factor(ifelse(bmi >= 30, "BMI≥30", "BMI<30")))
+```{r}
+lm_spec <- linear_reg() |> 
+  set_engine("lm") 
+```
 
-# Quick profile
-top_pos %>%
-  count(smoker, obese30) %>%
-  arrange(desc(n))
+```{r}
+wf <- workflow() |> 
+  add_recipe(rec_base) |> 
+  add_model(lm_spec)
+```
 
-top_pos %>%
-  count(region, smoker) %>%
-  arrange(desc(n))
+```{r}
+fit <- fit(wf, data = df)
+summary(fit$fit$fit)
+```
+
+```{r}
+folds <- vfold_cv(df, v = 5, strata = smoker)
+ctrl  <- control_resamples(save_pred = TRUE, save_workflow = TRUE)
+```
+
+```{r}
+res_lm <- fit_resamples(wf, folds, control = ctrl, metrics = metric_set(rmse, mae, rsq))
 
 ```
+
+```{r}
+log_metrics <- bind_rows(
+  collect_metrics(res_lm) |> mutate(model = "lm")
+)
+log_metrics
+
+```
+
 
