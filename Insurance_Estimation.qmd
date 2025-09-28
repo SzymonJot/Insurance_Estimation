@@ -142,6 +142,7 @@ p <-df |> select(sex,smoker,region) |> ggpairs() +
 print(p, progress=FALSE)
 ```
 
+Ilość mężczyzn do ilości kobiet jest podobna. Większość palaczy jest wśród mężczyzn. Większość osób nie pali. Nie obserwuje się zależności między zmiennymi objaśnianymi a regionem.
 
 
 ```{r}
@@ -153,55 +154,119 @@ df |> select(region, sex, smoker, charges) |>
   labs(title = "Charges by categorical variables", x = "", y = "Charges")
 ```
 
+W przypadku zmiennych kategorycznych obserwuje się znacząco większe koszty ubezpieczenia dla osób palących. W przypadku niepalących media jest znacznie niżej za to występuje wiele wartości odstających ponad górny wąs, co może oznaczać, że istnieje dodatkowy czynnik, który zwiększa koszt ubezpieczenia. Media opłat dla mężczyzn oraz kobieta jest ta sama, za to górny kwartyl dla mężczyzn jest znacznie wyżej. Oznacza to, że wsród mężczyzn koszt jest mniej skupiony wokół mediany i ma tendencje do obserwacji z wyższym kosztem. Dla regiony koszta wyglądają bardzo podobnie, najwyższy wąs pojawia się dla południowego wschodu.
+
 ```{r}
+df |> ggplot(aes(x=charges, fill = sex)) + geom_density(alpha = 0.5)
+```
+
+
+```{r}
+df |> ggplot(aes(x=charges, fill = smoker)) + geom_density(alpha = 0.5)
+```
+
+
+```{r}
+df |> ggplot(aes(x=charges, fill = region)) + geom_density(alpha = 0.5)
+```
+
+Z powyższych wykresów wynika, że palące osoby mają znacznie większą składke ubezpieczniową oraz kumulują się w okolicy 20000 oraz 40000.
+
+```{r}
+df |> ggplot(aes(x=charges, fill = df$bmi >30)) + geom_density(alpha = 0.5)
+```
+
+```{r}
+df %>%
+  filter(smoker == "yes") %>%
+  mutate(BMI_group = ifelse(bmi < 30, "BMI < 30", "BMI ≥ 30")) %>%
+  ggplot(aes(x = charges, fill = BMI_group)) +
+  geom_density(alpha = 0.5)
+
+```
+
+```{r}
+df %>%
+  filter(smoker == "no") %>%
+  mutate(BMI_group = ifelse(bmi < 30, "BMI < 30", "BMI ≥ 30")) %>%
+  ggplot(aes(x = charges, fill = BMI_group)) +
+  geom_density(alpha = 0.5)
+```
+
+Palące osoby z BMI powyżej 30 mają średni koszt w okolicy 40000, a poniżej 30 w okolicy 20000. W przypadku osób niepalących BMI nie ma dużego wpływu na koszt ubezpieczenia.
+
+
+```{r}
+df |> 
+  filter(smoker == "no" & bmi<30 ) |> 
+  ggplot(aes(y=charges)) + geom_boxplot()
+
+```
+
+```{r}
+df |> 
+  filter(smoker == "no" & bmi<30 & charges > 23000) 
+```
+
+Powyższe osoby mają relatywnie wysoką składkę na tle innych osób o tych samych cechac, co sugeruje występowanie innych czynników determinujących wysokość składki.
+
+
+
+```{r}
+# Palenie tak samo obciąża kobiety jak i mężczyzn.
 ggplot(df, aes(x = smoker, y = charges, fill = sex)) +
   geom_boxplot(position = position_dodge()) +
   labs(title = "Interaction: Smoker × Sex", x = "Smoker", y = "Charges")
 
 ```
-```{r}
-ggplot(df, aes(x = smoker, y = charges, fill = smoker)) +
-  geom_boxplot() +
-  facet_wrap(~ sex)
 
-```
+
+
 ```{r}
+# Wiek wpływa tak samo na palących jak i nie palących.
 ggplot(df, aes(x = age, y = charges, color = smoker)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
   labs(title = "Interaction: Age × Smoker", x = "Age", y = "Charges")
 
+# Wzrost BMI podwyższa znacznie więcej koszt ubezpieczenia dla palących niż dla niepalących.
 ggplot(df, aes(x = bmi, y = charges, color = smoker)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
   labs(title = "Interaction: BMI × Smoker", x = "bmi", y = "Charges")
 
+# Wzrost liczby dzieci zwiększa składke tak samo dla palących jak i nie palących.
 ggplot(df, aes(x = children, y = charges, color = smoker)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Interaction: BMI × Smoker", x = "children", y = "Charges")
+  labs(title = "Interaction: Children × Smoker", x = "children", y = "Charges")
 
 
 ```
+
 ```{r}
+# Wzrost wieku wpływa tak samo na wzrost składki dla mężczyzn i kobiet.
 ggplot(df, aes(x = age, y = charges, color = sex)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
   labs(title = "Interaction: Age × Sex", x = "Age", y = "Charges")
 
+# Wzrost BMI zwiększa bardziej składke dla mężczyzn niż dla kobiet
 ggplot(df, aes(x = bmi, y = charges, color = sex)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
   labs(title = "Interaction: BMI × Sex", x = "bmi", y = "Charges")
 
+# Wzrost liczby dzieci nieznacznie bardziej obciąża mężczyzn niż kobiety.
 ggplot(df, aes(x = children, y = charges, color = sex)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Interaction: BMI × Smoker", x = "children", y = "Charges")
+  labs(title = "Interaction: Children × Sex", x = "children", y = "Charges")
 ```
 
 
 ```{r}
+# Palenie papierosów tak samo wpływa na wzrost składki dla kobiet i mężczyzn w każdym regionie.
 ggplot(df, aes(x = smoker, y = charges, fill = smoker)) +
   geom_boxplot() +
   facet_grid(sex ~ region) +
@@ -214,6 +279,8 @@ ggplot(df, aes(x = smoker, y = charges, fill = smoker)) +
 df <- mutate(df, is_male = ifelse(sex == "male", 1, 0))
 df <- mutate(df, is_smoking = ifelse(smoker == "yes", 1, 0))
 df <- mutate(df, region = as.factor(region))
+df <- mutate(df, children = as.factor(children))
+df <- mutate(df, sex = as.factor(sex))
 str(df)
 ```
 
@@ -229,4 +296,116 @@ corr_mat <- cor(df |> select(where(is.numeric)))
 ggcorrplot(corr_mat, method="circle", type='lower', title = 'Correlation Matrix')
 ```
 
+Nie obserwuje się wysokiej korelacji między zmiennymi objaśniającymi, co wyklucza problem współliniowości.
+
+# Modelowanie
+
+```{r}
+model <- lm(charges_log ~ age + bmi + children + region + is_male + is_smoking, data = df)
+summary(model)
+res <- residuals(model)
+plot(fitted(model), res)
+abline(h = 0, col = "red")
+```
+
+```{r}
+qqnorm(res)
+qqline(res, col = "red")
+```
+
+
+```{r}
+model <- lm(charges_log ~ age + bmi * is_smoking + children + region + is_male, data = df)
+summary(model)
+res <- residuals(model)
+plot(fitted(model), res)
+abline(h = 0, col = "red")
+```
+
+```{r}
+library(splines)
+
+model <- lm(
+  charges_log ~ smoker * ns(bmi, 4) + ns(age, 3) + sex + region + children,
+  data = df
+)
+summary(model)
+res <- residuals(model)
+plot(fitted(model), res)
+abline(h = 0, col = "red")
+
+```
+
+```{r}
+df_clean <- df |>
+  filter(!(is_smoking == FALSE & bmi < 30 & charges > 23000))
+
+```
+
+
+```{r}
+m <- lm(
+  charges_log ~ smoker * ns(bmi, 4) + ns(age, 3) + sex + region + children,
+  data = df_clean
+)
+
+summary(m)
+res <- residuals(m)
+plot(fitted(m), res)
+```
+
+
+
+```{r}
+m2 <- lm(charges_log ~ smoker * (ns(bmi,4) + ns(age,3)) + sex + region + children, data = df)
+summary(m2)
+res <- residuals(m2)
+plot(fitted(m2), res)
+```
+
+
+```{r}
+df$obese30 <- factor(df$bmi >= 30, labels = c("BMI<30","BMI≥30"))
+m <- lm(charges_log ~ smoker * (ns(bmi,4) + ns(age,3) + obese30) + sex + region + children, data=df)
+summary(m)
+res <- residuals(m)
+plot(fitted(m), res)
+```
+
+
+```{r}
+library(broom); library(dplyr)
+
+aug_used <- augment(m) %>%                      # tylko wiersze użyte w m
+  mutate(rowid = as.integer(.rownames)) %>%
+  select(rowid, .fitted, .resid)
+
+df <- df %>% mutate(rowid = dplyr::row_number()) %>%
+  left_join(aug_used, by = "rowid")             # brakujące → NA
+
+
+
+```
+
+```{r}
+library(broom); library(dplyr); library(tidyr); library(forcats)
+
+aug <- augment(m, data = df)  # adds .fitted, .resid, .hat, .cooksd, .std.resid
+
+# Top positives
+top_pos <- aug %>%
+  arrange(desc(.resid)) %>%
+  slice_head(n = 50) %>%
+  mutate(obese30 = factor(ifelse(bmi >= 30, "BMI≥30", "BMI<30")))
+
+# Quick profile
+top_pos %>%
+  count(smoker, obese30) %>%
+  arrange(desc(n))
+
+top_pos %>%
+  count(region, smoker) %>%
+  arrange(desc(n))
+
+```
 
