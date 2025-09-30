@@ -47,6 +47,8 @@ library(ggplot2)
 library(ggcorrplot)
 library(GGally)
 library(moments)
+library(workflowsets)
+library(dials)
 library(dplyr)
 ```
 
@@ -385,6 +387,17 @@ df <- df |>  mutate(
   )
 ```
 
+```{r}
+df <- df %>%
+  mutate(
+    charges_log = log(charges),
+    smoker  = factor(smoker),
+    sex     = factor(sex),
+    region  = factor(region),
+    children = factor(children)
+  )
+```
+
 # Dodanie przepisu
 ```{r}
 rec_base <- recipe(
@@ -392,8 +405,169 @@ rec_base <- recipe(
   data = df
 ) |> 
 step_log(charges) |> 
+step_dummy(all_nominal_predictors()) |>
+step_zv(all_predictors()) |> 
 step_normalize(all_numeric_predictors())  
+
+rec_smoke_interaction <- recipe(
+  charges ~ smoker + bmi + age + sex + region + children,
+  data = df
+) |> 
+step_log(charges) |> 
+step_dummy(all_nominal_predictors()) |> 
+step_interact(terms = ~ starts_with("smoker_"):bmi) |>
+step_zv(all_predictors()) |> 
+step_normalize(all_numeric_predictors())  
+
+rec_smoke_interaction_ns <- recipe(
+  charges ~ smoker + bmi + age + sex + region + children,
+  data = df
+) |> 
+step_log(charges) |> 
+step_dummy(all_nominal_predictors()) |> 
+step_ns(age, deg_free=3) |> 
+step_ns(bmi, deg_free=4) |> 
+step_interact(terms = ~ starts_with("smoker_") : contains("_ns_")) |> 
+step_zv(all_predictors()) |> 
+step_normalize(all_numeric_predictors())  
+
+
+
 ```
+
+
+```{r}
+lm_spec <- linear_reg() |> 
+  set_engine("lm") 
+```
+
+```{r}
+wf <- workflow() |> 
+  add_recipe(rec_smoke_interaction_ns) |> 
+  add_model(lm_spec)
+```
+
+```{r}
+fit <- fit(wf, data = df)
+summary(fit$fit$fit)
+```
+
+
+```{r}
+bake(prep(rec_base), new_data = NULL)
+```
+
+```{r}
+recipes_list <- list(
+  base = rec_base,
+  smoke_inter = rec_smoke_interaction,
+  smoke_inter_ns = rec_smoke_interaction_ns
+)
+```
+
+## Zdefiniowanie modeli
+```{r}
+lm_spec      <- linear_reg() %>% set_engine("lm")
+
+ridge_spec   <- linear_reg(penalty = tune(), mixture = 0) %>% set_engine("glmnet")
+
+rf_spec <- rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>%
+  set_engine("ranger") %>% set_mode("regression")
+
+xgb_spec <- boost_tree(
+  trees = 1000, learn_rate = tune(),
+  tree_depth = tune(), min_n = tune(), loss_reduction = tune()
+) %>% set_engine("xgboost") %>% set_mode("regression")
+
+models_list <- list(
+  lm     = lm_spec ,
+  ridge  = ridge_spec ,
+  rf     = rf_spec,
+  xgb    = xgb_spec
+)
+
+```
+
+```{r}
+wfs <- workflow_set( preproc = recipes_list, models = models_list, cross = TRUE )
+```
+
+
+```{r}
+
+ridge_grid <- grid_regular(penalty(range = c(-4, 1)), levels = 20)  
+
+rf_grid <- grid_latin_hypercube(
+  mtry(range = c(2L, 20L)),   
+  min_n(),
+  size = 20
+)
+
+xgb_grid <- grid_latin_hypercube(
+  learn_rate(), tree_depth(), min_n(), loss_reduction(),
+  size = 25
+)
+
+ridge_ids <- wfs$wflow_id[grepl("_ridge$", wfs$wflow_id)]
+rf_ids    <- wfs$wflow_id[grepl("_rf$",    wfs$wflow_id)]
+xgb_ids   <- wfs$wflow_id[grepl("_xgb$",   wfs$wflow_id)]
+
+
+wfs2 <- wfs
+for (id in ridge_ids) wfs2 <- option_add(wfs2, id = id, grid = ridge_grid)
+for (id in rf_ids)    wfs2 <- option_add(wfs2, id = id, grid = rf_grid)
+for (id in xgb_ids)   wfs2 <- option_add(wfs2, id = id, grid = xgb_grid)
+
+```
+
+```{r}
+folds <- vfold_cv(df, v = 2) 
+metrics <- metric_set(rmse, mae, rsq)
+
+ctrl_grid <- control_grid(
+  save_workflow = TRUE,
+  parallel_over = "resamples",  # albo "everything"
+  verbose = TRUE
+)
+
+set.seed(123)
+results <- workflow_map(
+  wfs2,
+  "tune_grid",          
+  resamples = folds,
+  metrics   = metrics,  
+  control   = ctrl_grid,
+  seed      = 123
+)
+
+```
+
+```{r}
+ranked <- rank_results(results)  
+ranked |>  filter(.metric == "rmse") |>  arrange(mean)
+
+```
+
+
+```{r}
+wfs <- workflow_set(
+  preproc = recipes_list,
+  models  = models_list,
+  cross   = TRUE
+)
+
+```
+
+```{r}
+folds   <- vfold_cv(df, v = 10, strata = smoker)
+metrics <- metric_set(rmse, mae, rsq)
+
+ctrl <- control_grid(       
+  save_pred = TRUE, save_workflow = TRUE, allow_par = TRUE, verbose = TRUE
+)
+
+```
+
 
 ```{r}
 lm_spec <- linear_reg() |> 
