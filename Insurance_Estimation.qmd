@@ -50,6 +50,13 @@ library(moments)
 library(workflowsets)
 library(dials)
 library(dplyr)
+library(purrr)
+library(tidyr)
+library(rsample)
+library(tune)
+library(splines)
+library(rpart)
+library(rpart.plot)
 ```
 
 ```{r}
@@ -214,7 +221,6 @@ df |>
 Powyższe osoby mają relatywnie wysoką składkę na tle innych osób o tych samych cechac, co sugeruje występowanie innych czynników determinujących wysokość składki.
 
 
-
 ```{r}
 # Palenie tak samo obciąża kobiety jak i mężczyzn.
 ggplot(df, aes(x = smoker, y = charges, fill = sex)) +
@@ -303,9 +309,10 @@ Nie obserwuje się wysokiej korelacji między zmiennymi objaśniającymi, co wyk
 
 # Modelowanie
 
+## Model podstawowy
 ```{r}
 model <- lm(charges_log ~ age + bmi + children + region + is_male + is_smoking, data = df)
-summary(model)
+sum_m <-summary(model)
 res <- residuals(model)
 plot(fitted(model), res)
 abline(h = 0, col = "red")
@@ -316,77 +323,115 @@ qqnorm(res)
 qqline(res, col = "red")
 ```
 
+```{r}
+print(sum_m$r.squared)
+```
+
+Reszty wykazują silną heteroskedastyczność i odchylenia od normalności. W efekcie klasyczne błędy standardowe i testy parametryczne mogą dawać błędne wnioski. 
+
+Aby poprawić charakterystykę modelu dodano interakcję między wskaźnikiem BMI oraz paleniem. We wcześniejszym etapie analizy zaobserwowano, że wzrost BMI znacznie bardziej obciąża palących niż niepalących.
 
 ```{r}
 model <- lm(charges_log ~ age + bmi * is_smoking + children + region + is_male, data = df)
-summary(model)
+sum_m <-summary(model)
 res <- residuals(model)
 plot(fitted(model), res)
 abline(h = 0, col = "red")
 ```
 
 ```{r}
-library(splines)
+df_plot <- data.frame(
+  fit        = fitted(model),
+  res        = residuals(model),
+  is_smoking = factor(ifelse(df$is_smoking, "Smoker", "Non-smoker")),
+  bmicat     = factor(ifelse(df$charges > 30000, "High charges", "Low charges"))
+)
 
+ggplot(df_plot, aes(fit, res, color = is_smoking, shape = bmicat)) +
+  geom_point(alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_shape_manual(values = c("High charges" = 16, "Low charges" = 17)) +
+  labs(x = "Fitted values", y = "Residuals",
+       title = "Residuals vs Fitted",
+       color = "Smoking", shape = "BMI") +
+  theme_minimal()
+```
+
+```{r}
+print(sum_m$r.squared)
+```
+
+Po dodaniu interakcji wartość współczynnika determinacji nieznaczenia wzrosła, jednak charakterystyka modelu nie poprawiła się. Wciąż widoczne są systematyczne niedoszacowania.
+
+W kolejnym modelu umożliwiono nieliniowe dopasowanie zmiennych BMI oraz AGE, co poskutkowało lepszym dopasowaniem.
+```{r}
 model <- lm(
   charges_log ~ smoker * ns(bmi, 4) + ns(age, 3) + sex + region + children,
   data = df
 )
-summary(model)
+sum_m <- summary(model)
 res <- residuals(model)
 plot(fitted(model), res)
 abline(h = 0, col = "red")
+print(sum_m$r.squared)
 
 ```
 
-```{r}
-df_clean <- df |>
-  filter(!(is_smoking == FALSE & bmi < 30 & charges > 23000))
-
-```
-
-
-```{r}
-m <- lm(
-  charges_log ~ smoker * ns(bmi, 4) + ns(age, 3) + sex + region + children,
-  data = df_clean
-)
-
-summary(m)
-res <- residuals(m)
-plot(fitted(m), res)
-```
-
+W kolejnym kroku dodano interakcje między paleniem, a wiekiem. Ponownie poziom wyjaśnionej wariancji przez modelu wzrósł.
 
 ```{r}
 m2 <- lm(charges_log ~ smoker * (ns(bmi,4) + ns(age,3)) + sex + region + children, data = df)
-summary(m2)
+sum_m <- summary(m2)
 res <- residuals(m2)
 plot(fitted(m2), res)
+abline(h = 0, col = "red")
+print(sum_m$r.squared)
 ```
 
+Pomimo znacznego polepszenia struktury błędów, nadal widać znacząco niedoszacowane obserwacje.
 
 ```{r}
-df$obese30 <- factor(df$bmi >= 30, labels = c("BMI<30","BMI≥30"))
-m <- lm(charges_log ~ smoker * (ns(bmi,4) + ns(age,3) + obese30) + sex + region + children, data=df)
-summary(m)
+fit <- fitted(m)
 res <- residuals(m)
-plot(fitted(m), res)
+
+top_idx <- order(abs(res), decreasing = TRUE)[1:100]  
+outliers <- cbind(row = top_idx,
+                  df[top_idx, ],
+                  fit = fit[top_idx],
+                  resid = res[top_idx],
+                  rstudent = rstudent(model)[top_idx],
+                  cooks = cooks.distance(model)[top_idx])
+head(outliers)
 ```
+
 
 
 ```{r}
+aug <- augment(m2, data = df)
+aug$upper <- as.integer(aug$.resid > 1.5)
+aug$upper <- factor(aug$upper, levels = c(0,1), labels = c("no","yes"))
+tree <- rpart(
+  upper ~ smoker + region + children + sex + bmi + age,
+  data = aug,
+  method = "class",
+  parms = list(prior = c(0.5, 0.5)),    
+  control = rpart.control(cp = 0.0001, minbucket = 5, minsplit = 10, maxdepth = 5)
+)
 
-aug <- augment(m, data = df) 
-
+rpart.plot(tree)
 ```
 
-```{r}
-df <- df |>  mutate(
-    obese30 = factor(bmi >= 30, labels = c("BMI<30", "BMI≥30"))
-  )
-```
+Grupy, które model niedoszacowuje to:
 
+* niepalące osoby poniżej 26 roku życia
+* niepalące osoby między 28 a 26 rokie m życia nie mieszkające na południu.
+
+Jako, że w danych nie widać konkretnego powodu dla których grupy te mają tak wysokie opłaty, założono, że zbiór danych nie jest kompletny i istnieje dodatkowy czynnik, który nie został uwzględniony.
+
+
+Powyższe wnioski na temat struktury modelu posłużą w dalszym etapie modelowaniu do zbudowania przepisów.
+
+# Przygotowanie danych
 ```{r}
 df <- df %>%
   mutate(
@@ -431,31 +476,8 @@ step_interact(terms = ~ starts_with("smoker_") : contains("_ns_")) |>
 step_zv(all_predictors()) |> 
 step_normalize(all_numeric_predictors())  
 
-
-
 ```
 
-
-```{r}
-lm_spec <- linear_reg() |> 
-  set_engine("lm") 
-```
-
-```{r}
-wf <- workflow() |> 
-  add_recipe(rec_smoke_interaction_ns) |> 
-  add_model(lm_spec)
-```
-
-```{r}
-fit <- fit(wf, data = df)
-summary(fit$fit$fit)
-```
-
-
-```{r}
-bake(prep(rec_base), new_data = NULL)
-```
 
 ```{r}
 recipes_list <- list(
@@ -467,17 +489,17 @@ recipes_list <- list(
 
 ## Zdefiniowanie modeli
 ```{r}
-lm_spec      <- linear_reg() %>% set_engine("lm")
+lm_spec      <- linear_reg() |>  set_engine("lm")
 
-ridge_spec   <- linear_reg(penalty = tune(), mixture = 0) %>% set_engine("glmnet")
+ridge_spec   <- linear_reg(penalty = tune(), mixture = 0) |>  set_engine("glmnet")
 
-rf_spec <- rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>%
-  set_engine("ranger") %>% set_mode("regression")
+rf_spec <- rand_forest(mtry = tune(), min_n = tune(), trees = 1000) |> 
+  set_engine("ranger") |>  set_mode("regression")
 
 xgb_spec <- boost_tree(
   trees = 1000, learn_rate = tune(),
   tree_depth = tune(), min_n = tune(), loss_reduction = tune()
-) %>% set_engine("xgboost") %>% set_mode("regression")
+) |>  set_engine("xgboost")  |>  set_mode("regression")
 
 models_list <- list(
   lm     = lm_spec ,
@@ -521,12 +543,16 @@ for (id in xgb_ids)   wfs2 <- option_add(wfs2, id = id, grid = xgb_grid)
 ```
 
 ```{r}
-folds <- vfold_cv(df, v = 2) 
+
+# 1) Podział na zbiór treningowy i testowy
+spl <- initial_split(df, prop = 0.8)
+
+folds <- vfold_cv(training(spl), v = 5) 
 metrics <- metric_set(rmse, mae, rsq)
 
 ctrl_grid <- control_grid(
   save_workflow = TRUE,
-  parallel_over = "resamples",  # albo "everything"
+  parallel_over = "resamples", 
   verbose = TRUE
 )
 
@@ -544,63 +570,39 @@ results <- workflow_map(
 
 ```{r}
 ranked <- rank_results(results)  
-ranked |>  filter(.metric == "rmse") |>  arrange(mean)
+ranked <- ranked |>  filter(.metric == "rmse") |>  arrange(mean)
+print(ranked)
+```
+Model o najniższym błędzie to model drzewa losowego z interakcją między zmienną smoker, a BMI.
+
+W następnym kroku wygenerowano predykcje dla 20% zbioru testowego
+
+```{r}
+# Wybór najlepszych konfiguracji 
+final_tbl <- results |> 
+  mutate(
+    best = map(result, ~ select_best(.x, metric = "rmse")),
+    wf   = map2(info, best, ~ finalize_workflow(.x$workflow[[1]], .y)),
+    last = map(wf, ~ last_fit(.x, split = spl))
+  )
+
+# Zebranie predykcji
+test_preds <- final_tbl |> 
+  mutate(preds = map(last, collect_predictions)) |> 
+  select(wflow_id, preds) |> 
+  unnest(preds)
 
 ```
 
 
 ```{r}
-wfs <- workflow_set(
-  preproc = recipes_list,
-  models  = models_list,
-  cross   = TRUE
-)
-
+# Wykres Predykcja vs Rzeczywiste
+ggplot(test_preds, aes(x = .pred, y = charges)) +
+  geom_point(alpha = 0.6) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  facet_wrap(~ wflow_id, scales = "free") +
+  labs(x = "Predykcja", y = "Rzeczywiste", title = "Predykcja vs Rzeczywiste wartości")
 ```
 
-```{r}
-folds   <- vfold_cv(df, v = 10, strata = smoker)
-metrics <- metric_set(rmse, mae, rsq)
-
-ctrl <- control_grid(       
-  save_pred = TRUE, save_workflow = TRUE, allow_par = TRUE, verbose = TRUE
-)
-
-```
-
-
-```{r}
-lm_spec <- linear_reg() |> 
-  set_engine("lm") 
-```
-
-```{r}
-wf <- workflow() |> 
-  add_recipe(rec_base) |> 
-  add_model(lm_spec)
-```
-
-```{r}
-fit <- fit(wf, data = df)
-summary(fit$fit$fit)
-```
-
-```{r}
-folds <- vfold_cv(df, v = 5, strata = smoker)
-ctrl  <- control_resamples(save_pred = TRUE, save_workflow = TRUE)
-```
-
-```{r}
-res_lm <- fit_resamples(wf, folds, control = ctrl, metrics = metric_set(rmse, mae, rsq))
-
-```
-
-```{r}
-log_metrics <- bind_rows(
-  collect_metrics(res_lm) |> mutate(model = "lm")
-)
-log_metrics
-
-```
 
 
