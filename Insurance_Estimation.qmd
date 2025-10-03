@@ -391,8 +391,8 @@ print(sum_m$r.squared)
 Pomimo znacznego polepszenia struktury błędów, nadal widać znacząco niedoszacowane obserwacje.
 
 ```{r}
-fit <- fitted(m)
-res <- residuals(m)
+fit <- fitted(m2)
+res <- residuals(m2)
 
 top_idx <- order(abs(res), decreasing = TRUE)[1:100]  
 outliers <- cbind(row = top_idx,
@@ -573,7 +573,7 @@ ranked <- rank_results(results)
 ranked <- ranked |>  filter(.metric == "rmse") |>  arrange(mean)
 print(ranked)
 ```
-Model o najniższym błędzie to model drzewa losowego z interakcją między zmienną smoker, a BMI.
+Model o najniższym błędzie to model regresji liniowej z interakcją między zmienną smoker, a BMI oraz dopuszczonym nieliniowym kształtem relacji dla AGE i BMI.
 
 W następnym kroku wygenerowano predykcje dla 20% zbioru testowego
 
@@ -605,4 +605,4 @@ ggplot(test_preds, aes(x = .pred, y = charges)) +
 ```
 
 
-
+Poprawnie zbudowany model regresji liniowej osiągnął lepsze wyniki niż bardziej zaawansowane metody. 
