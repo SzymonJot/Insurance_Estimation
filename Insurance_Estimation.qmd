@@ -28,6 +28,8 @@ execute:
   echo: true
   warning: false
   message: false
+  cache: true         
+freeze: auto  
 ---
 # Wstęp
 
@@ -294,7 +296,7 @@ str(df)
 ```
 
 ```{r}
-df |> select(where(is.numeric))
+df |> select(where(is.numeric)) |> head()
 ```
 
 ```{r}
@@ -431,7 +433,7 @@ Jako, że w danych nie widać konkretnego powodu dla których grupy te mają tak
 
 Powyższe wnioski na temat struktury modelu posłużą w dalszym etapie modelowaniu do zbudowania przepisów.
 
-# Przygotowanie danych
+## Przygotowanie danych
 ```{r}
 df <- df %>%
   mutate(
@@ -443,7 +445,7 @@ df <- df %>%
   )
 ```
 
-# Dodanie przepisu
+## Dodanie przepisu
 ```{r}
 rec_base <- recipe(
   charges ~ smoker + bmi + age + sex + region + children,
@@ -542,6 +544,7 @@ for (id in xgb_ids)   wfs2 <- option_add(wfs2, id = id, grid = xgb_grid)
 
 ```
 
+## Ewaluacja modeli
 ```{r}
 
 # 1) Podział na zbiór treningowy i testowy
@@ -604,5 +607,12 @@ ggplot(test_preds, aes(x = .pred, y = charges)) +
   labs(x = "Predykcja", y = "Rzeczywiste", title = "Predykcja vs Rzeczywiste wartości")
 ```
 
+# Wnioski
 
-Poprawnie zbudowany model regresji liniowej osiągnął lepsze wyniki niż bardziej zaawansowane metody. 
+Poprawnie zbudowany model regresji liniowej osiągnął lepsze wyniki niż bardziej zaawansowane metody. Poprawna specyfikacja modelu z uwzględnieniem :
+
+* interakcji między zmiennymi smoker, bmi oraz age,
+* dopuszczenie nieliniowych dopasowań dla zmiennych bmi oraz age,
+
+okazała się kluczowa dla efektywności modelu.
+
